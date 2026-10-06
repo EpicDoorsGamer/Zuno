@@ -138,6 +138,8 @@ Use this in Discord as a Head Administrator or higher:
 
 `log_channel` is optional. If set, Zuno logs ticket closes there.
 
+Close logs are sent as a Zuno embed with ticket owner, panel name, closer, claimant, timing, message count, transcript users, and an attached `.txt` transcript file.
+
 Use `/ticket config` to view the current setup and `/ticket disable` to turn the ticket system off without deleting existing channels.
 
 To modify the existing panel and ticket destinations:

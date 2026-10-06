@@ -1,5 +1,6 @@
 const {
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
@@ -84,6 +85,207 @@ function buildTicketWelcome(ticketOwner, ticket = {}) {
     embeds: [embed],
     components: [row],
   };
+}
+
+function formatDiscordTimestamp(value, style = 'f') {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown';
+  }
+
+  return `<t:${Math.floor(date.getTime() / 1000)}:${style}>`;
+}
+
+function formatDuration(startValue, endValue = new Date()) {
+  const start = new Date(startValue);
+  const end = new Date(endValue);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return 'Unknown';
+  }
+
+  const totalSeconds = Math.max(
+    0,
+    Math.floor((end.getTime() - start.getTime()) / 1000),
+  );
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+
+  const parts = [];
+
+  if (days) {
+    parts.push(`${days}d`);
+  }
+
+  if (hours) {
+    parts.push(`${hours}h`);
+  }
+
+  if (minutes || parts.length === 0) {
+    parts.push(`${minutes}m`);
+  }
+
+  return parts.join(' ');
+}
+
+async function fetchTranscriptMessages(channel) {
+  const messages = [];
+  let before;
+
+  while (true) {
+    const batch = await channel.messages
+      .fetch({
+        limit: 100,
+        before,
+      })
+      .catch(() => null);
+
+    if (!batch?.size) {
+      break;
+    }
+
+    messages.push(...batch.values());
+    before = batch.last().id;
+
+    if (batch.size < 100) {
+      break;
+    }
+  }
+
+  return messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+}
+
+function formatTranscriptLine(message) {
+  const author = message.author?.tag ?? 'Unknown User';
+  const authorId = message.author?.id ?? 'unknown-id';
+  const timestamp = message.createdAt.toISOString();
+  const content = message.content?.trim() || '[No text content]';
+  const attachments = [...message.attachments.values()].map(
+    (attachment) => `Attachment: ${attachment.url}`,
+  );
+  const stickers = [...message.stickers.values()].map(
+    (sticker) => `Sticker: ${sticker.name}`,
+  );
+  const embeds =
+    message.embeds.length > 0 ? [`Embeds: ${message.embeds.length}`] : [];
+  const extras = [...attachments, ...stickers, ...embeds];
+
+  return [
+    `[${timestamp}] ${author} (${authorId})`,
+    content,
+    ...extras,
+  ].join('\n');
+}
+
+function buildTranscriptText({ channel, config, ticket, closedBy, closedAt, messages }) {
+  const header = [
+    'Zuno Ticket Transcript',
+    `Ticket: #${ticket.ticketNumber}`,
+    `Channel: #${channel.name} (${channel.id})`,
+    `Panel: ${config?.title || DEFAULT_PANEL_TITLE}`,
+    `Owner ID: ${ticket.userId}`,
+    `Claimed By ID: ${ticket.claimedBy || 'Unclaimed'}`,
+    `Closed By: ${closedBy.tag} (${closedBy.id})`,
+    `Created At: ${ticket.createdAt || 'Unknown'}`,
+    `Closed At: ${closedAt.toISOString()}`,
+    `Message Count: ${messages.length}`,
+    ''.padEnd(48, '-'),
+  ];
+
+  const lines = messages.map(formatTranscriptLine);
+  return `${header.join('\n')}\n\n${lines.join('\n\n')}\n`;
+}
+
+function getTranscriptParticipants(messages) {
+  const participants = new Map();
+
+  for (const message of messages) {
+    if (message.author?.id) {
+      participants.set(message.author.id, message.author.tag);
+    }
+  }
+
+  return participants;
+}
+
+function formatParticipantSummary(participants) {
+  if (participants.size === 0) {
+    return 'No message authors found';
+  }
+
+  const lines = [...participants.entries()]
+    .slice(0, 10)
+    .map(([userId, tag], index) => `${index + 1}. <@${userId}> - ${tag}`);
+
+  if (participants.size > 10) {
+    lines.push(`+ ${participants.size - 10} more`);
+  }
+
+  return lines.join('\n');
+}
+
+function buildTicketLogEmbed({
+  channel,
+  config,
+  ticket,
+  closedBy,
+  closedAt,
+  messageCount,
+  participants,
+}) {
+  return new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setAuthor({ name: 'ZUNO • TICKET TRANSCRIPT' })
+    .setTitle(`Ticket #${ticket.ticketNumber} Closed`)
+    .setDescription('A ticket was closed and its transcript is attached below.')
+    .addFields(
+      {
+        name: 'TICKET',
+        value: [
+          `Owner: <@${ticket.userId}>`,
+          `Channel: #${channel.name}`,
+          `Panel: **${config?.title || DEFAULT_PANEL_TITLE}**`,
+        ].join('\n'),
+        inline: true,
+      },
+      {
+        name: 'STAFF',
+        value: [
+          `Closed By: <@${closedBy.id}>`,
+          `Claimed By: ${
+            ticket.claimedBy ? `<@${ticket.claimedBy}>` : 'Unclaimed'
+          }`,
+        ].join('\n'),
+        inline: true,
+      },
+      {
+        name: 'TIMING',
+        value: [
+          `Opened: ${formatDiscordTimestamp(ticket.createdAt)}`,
+          `Closed: ${formatDiscordTimestamp(closedAt)}`,
+          `Duration: **${formatDuration(ticket.createdAt, closedAt)}**`,
+        ].join('\n'),
+        inline: false,
+      },
+      {
+        name: 'TRANSCRIPT',
+        value: [
+          `Messages: **${messageCount}**`,
+          `Users: **${participants.size}**`,
+          'File: attached `.txt` transcript',
+        ].join('\n'),
+        inline: true,
+      },
+      {
+        name: 'USERS IN TRANSCRIPT',
+        value: formatParticipantSummary(participants),
+        inline: false,
+      },
+    )
+    .setFooter({ text: 'Zuno ticket logs' })
+    .setTimestamp(closedAt);
 }
 
 function buildConfigSummary(config) {
@@ -571,12 +773,38 @@ async function logTicketClose(interaction, config, ticket) {
     return;
   }
 
+  const closedAt = new Date();
+  const messages = await fetchTranscriptMessages(interaction.channel);
+  const participants = getTranscriptParticipants(messages);
+  const transcriptText = buildTranscriptText({
+    channel: interaction.channel,
+    config,
+    ticket,
+    closedBy: interaction.user,
+    closedAt,
+    messages,
+  });
+  const transcriptFile = new AttachmentBuilder(
+    Buffer.from(transcriptText, 'utf8'),
+    {
+      name: `ticket-${String(ticket.ticketNumber).padStart(4, '0')}-transcript.txt`,
+    },
+  );
+  const embed = buildTicketLogEmbed({
+    channel: interaction.channel,
+    config,
+    ticket,
+    closedBy: interaction.user,
+    closedAt,
+    messageCount: messages.length,
+    participants,
+  });
+
   await logChannel
-    .send(
-      `Ticket #${ticket.ticketNumber} closed by <@${interaction.user.id}>. Owner: <@${ticket.userId}>.${
-        ticket.claimedBy ? ` Claimed by: <@${ticket.claimedBy}>.` : ''
-      }`,
-    )
+    .send({
+      embeds: [embed],
+      files: [transcriptFile],
+    })
     .catch(() => null);
 }
 
