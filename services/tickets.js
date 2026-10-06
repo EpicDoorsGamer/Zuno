@@ -3,6 +3,7 @@ const path = require('node:path');
 
 const dataDir = path.join(__dirname, '..', 'data');
 const ticketsPath = path.join(dataDir, 'tickets.json');
+const ticketsBackupPath = path.join(dataDir, 'tickets.backup.json');
 
 let ticketStore = null;
 
@@ -10,36 +11,124 @@ function ensureStore() {
   fs.mkdirSync(dataDir, { recursive: true });
 
   if (!fs.existsSync(ticketsPath)) {
-    fs.writeFileSync(ticketsPath, '{}\n', 'utf8');
+    if (fs.existsSync(ticketsBackupPath)) {
+      fs.copyFileSync(ticketsBackupPath, ticketsPath);
+      return;
+    }
+
+    writeJsonFile(ticketsPath, {});
   }
 }
 
-function loadTickets() {
-  if (ticketStore) {
+function isPlainObject(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function writeJsonFile(filePath, value) {
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function readJsonFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+
+    const raw = fs.readFileSync(filePath, 'utf8').trim();
+
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    return isPlainObject(parsed) ? parsed : null;
+  } catch (error) {
+    console.warn(`Could not read ${filePath}: ${error.message}`);
+    return null;
+  }
+}
+
+function normalizeGuildState(state) {
+  const normalized = isPlainObject(state) ? state : {};
+
+  normalized.config = isPlainObject(normalized.config)
+    ? normalized.config
+    : null;
+  normalized.counter = Number.isInteger(normalized.counter)
+    ? normalized.counter
+    : 0;
+  normalized.openTickets = isPlainObject(normalized.openTickets)
+    ? normalized.openTickets
+    : {};
+
+  return normalized;
+}
+
+function normalizeStore(store) {
+  const normalized = {};
+
+  if (!isPlainObject(store)) {
+    return normalized;
+  }
+
+  for (const [guildId, state] of Object.entries(store)) {
+    normalized[guildId] = normalizeGuildState(state);
+  }
+
+  return normalized;
+}
+
+function hasAnyTicketConfig(store) {
+  return Object.values(store).some((state) => isPlainObject(state?.config));
+}
+
+function loadTickets({ force = false } = {}) {
+  if (ticketStore && !force) {
     return ticketStore;
   }
 
   ensureStore();
 
-  try {
-    ticketStore = JSON.parse(fs.readFileSync(ticketsPath, 'utf8'));
-  } catch {
-    ticketStore = {};
+  const primaryStore = readJsonFile(ticketsPath);
+
+  if (primaryStore) {
+    ticketStore = normalizeStore(primaryStore);
+    return ticketStore;
   }
 
-  if (!ticketStore || typeof ticketStore !== 'object' || Array.isArray(ticketStore)) {
-    ticketStore = {};
+  const backupStore = readJsonFile(ticketsBackupPath);
+
+  if (backupStore) {
+    ticketStore = normalizeStore(backupStore);
+    saveTickets();
+    console.warn('Restored ticket config from backup store.');
+    return ticketStore;
   }
 
+  ticketStore = {};
   return ticketStore;
 }
 
 function saveTickets() {
   ensureStore();
   const tempPath = `${ticketsPath}.tmp`;
+  const storeToSave = normalizeStore(ticketStore);
 
-  fs.writeFileSync(tempPath, `${JSON.stringify(ticketStore, null, 2)}\n`, 'utf8');
+  if (
+    fs.existsSync(ticketsPath) &&
+    hasAnyTicketConfig(readJsonFile(ticketsPath) ?? {})
+  ) {
+    fs.copyFileSync(ticketsPath, ticketsBackupPath);
+  }
+
+  writeJsonFile(tempPath, storeToSave);
   fs.renameSync(tempPath, ticketsPath);
+
+  if (hasAnyTicketConfig(storeToSave)) {
+    writeJsonFile(ticketsBackupPath, storeToSave);
+  }
+
+  ticketStore = storeToSave;
 }
 
 function getGuildState(guildId) {
