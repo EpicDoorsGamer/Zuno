@@ -17,7 +17,7 @@ Zuno is a minimal Discord bot built with Node.js and discord.js. It provides the
 
 `/clan assign` lets authorized Discord members assign the only supported clan, `WLAN`, to a Roblox account. Assignments are stored locally by Roblox user ID.
 
-`/ticket setup` sends a ticket panel with an Open Ticket button. Head Administrators can later edit the panel, move where it is posted, resend it, refresh the saved panel message, and change ticket destinations. Users can open one private ticket channel at a time, and ticket owners, the configured support role, or Head Administrator and above can close tickets.
+`/ticket setup` sends a ticket panel with an Open Ticket button. Head Administrators can later edit the panel, move where it is posted, resend it, refresh the saved panel message, and change ticket destinations. Users can open one private ticket channel at a time. Staff can claim tickets so other staff can see who is handling them, and ticket owners, the configured support role, or Head Administrator and above can close tickets.
 
 ## Folder Structure
 
@@ -198,5 +198,6 @@ Zuno uses public Roblox endpoints only and never fabricates unavailable values:
 - Successful `/whois` lookups are posted as a public Discord channel embed.
 - Ticket configuration is private/ephemeral and restricted to Head Administrator and above.
 - Ticket panels are public, ticket channels are private, and users can only have one open ticket at a time.
+- Ticket channels include a Claim Ticket button. Once staff claims a ticket, the ticket embed shows who claimed it and the claim button becomes disabled.
 - Roblox lookups are cached for a short time using `CACHE_TTL_SECONDS` to reduce unnecessary API traffic.
 - If Roblox omits or refuses a piece of optional data, Zuno leaves that field out instead of guessing.

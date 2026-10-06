@@ -17,12 +17,14 @@ const {
   getTicketConfig,
   removeOpenTicketByChannel,
   setTicketConfig,
+  updateOpenTicketByChannel,
 } = require('../services/tickets');
 const { hasRole, hasRoleOrAbove } = require('../utils/roles');
 
 const HEAD_ADMIN_ROLE_ID =
   process.env.HEAD_ADMIN_ROLE_ID || '1492957184261230642';
 const OPEN_TICKET_CUSTOM_ID = 'ticket:open';
+const CLAIM_TICKET_CUSTOM_ID = 'ticket:claim';
 const CLOSE_TICKET_CUSTOM_ID = 'ticket:close';
 const DEFAULT_PANEL_TITLE = 'Zuno Support';
 const DEFAULT_PANEL_DESCRIPTION =
@@ -50,7 +52,8 @@ function buildTicketPanel(config) {
   };
 }
 
-function buildTicketWelcome(ticketOwner) {
+function buildTicketWelcome(ticketOwner, ticket = {}) {
+  const claimedBy = ticket.claimedBy ? `<@${ticket.claimedBy}>` : 'Not claimed';
   const embed = new EmbedBuilder()
     .setColor(0x2b2d31)
     .setAuthor({ name: 'ZUNO • TICKET' })
@@ -58,10 +61,19 @@ function buildTicketWelcome(ticketOwner) {
     .setDescription(
       `${ticketOwner}, explain what you need help with and the team will respond here.`,
     )
+    .addFields({
+      name: 'CLAIM',
+      value: claimedBy,
+    })
     .setFooter({ text: 'Close this ticket when it is resolved.' })
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(CLAIM_TICKET_CUSTOM_ID)
+      .setLabel(ticket.claimedBy ? 'Claimed' : 'Claim Ticket')
+      .setStyle(ticket.claimedBy ? ButtonStyle.Success : ButtonStyle.Primary)
+      .setDisabled(Boolean(ticket.claimedBy)),
     new ButtonBuilder()
       .setCustomId(CLOSE_TICKET_CUSTOM_ID)
       .setLabel('Close Ticket')
@@ -135,6 +147,13 @@ function ticketChannelName(username, ticketNumber) {
   return `ticket-${String(ticketNumber).padStart(4, '0')}-${safeUsername}`.slice(
     0,
     100,
+  );
+}
+
+async function canStaffHandleTicket(interaction, config) {
+  return Boolean(
+    (config?.supportRoleId && hasRole(interaction.member, config.supportRoleId)) ||
+      (await hasRoleOrAbove(interaction, HEAD_ADMIN_ROLE_ID)),
   );
 }
 
@@ -521,16 +540,19 @@ async function openTicket(interaction) {
     reason: `Ticket opened by ${interaction.user.tag}`,
   });
 
-  addOpenTicket(interaction.guildId, interaction.user.id, {
-    channelId: channel.id,
-    ticketNumber,
-  });
-
-  await channel.send({
+  const welcomeMessage = await channel.send({
     content: config.supportRoleId
       ? `<@${interaction.user.id}> <@&${config.supportRoleId}>`
       : `<@${interaction.user.id}>`,
     ...buildTicketWelcome(`<@${interaction.user.id}>`),
+  });
+
+  addOpenTicket(interaction.guildId, interaction.user.id, {
+    channelId: channel.id,
+    ticketNumber,
+    messageId: welcomeMessage.id,
+    claimedBy: null,
+    claimedAt: null,
   });
 
   await interaction.editReply(`✅ Ticket opened: ${channel}`);
@@ -551,7 +573,9 @@ async function logTicketClose(interaction, config, ticket) {
 
   await logChannel
     .send(
-      `Ticket #${ticket.ticketNumber} closed by <@${interaction.user.id}>. Owner: <@${ticket.userId}>.`,
+      `Ticket #${ticket.ticketNumber} closed by <@${interaction.user.id}>. Owner: <@${ticket.userId}>.${
+        ticket.claimedBy ? ` Claimed by: <@${ticket.claimedBy}>.` : ''
+      }`,
     )
     .catch(() => null);
 }
@@ -578,8 +602,7 @@ async function closeTicket(interaction) {
 
   const canClose =
     interaction.user.id === ticket.userId ||
-    (config?.supportRoleId && hasRole(interaction.member, config.supportRoleId)) ||
-    (await hasRoleOrAbove(interaction, HEAD_ADMIN_ROLE_ID));
+    (await canStaffHandleTicket(interaction, config));
 
   if (!canClose) {
     await interaction.reply({
@@ -604,6 +627,67 @@ async function closeTicket(interaction) {
   setTimeout(() => {
     interaction.channel?.delete('Ticket closed').catch(() => null);
   }, 3000);
+}
+
+async function claimTicket(interaction) {
+  if (!interaction.inGuild()) {
+    await interaction.reply({
+      content: '❌ Tickets can only be claimed inside a server.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const config = getTicketConfig(interaction.guildId);
+  const ticket = findTicketByChannel(interaction.guildId, interaction.channelId);
+
+  if (!ticket) {
+    await interaction.reply({
+      content: '❌ This channel is not an active ticket.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (!(await canStaffHandleTicket(interaction, config))) {
+    await interaction.reply({
+      content: '❌ Only staff can claim tickets.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (ticket.claimedBy) {
+    await interaction.reply({
+      content: `This ticket is already claimed by <@${ticket.claimedBy}>.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const claimedTicket = updateOpenTicketByChannel(
+    interaction.guildId,
+    interaction.channelId,
+    {
+      claimedBy: interaction.user.id,
+      claimedAt: new Date().toISOString(),
+    },
+  );
+
+  await interaction.update(
+    buildTicketWelcome(`<@${claimedTicket.userId}>`, claimedTicket),
+  );
+
+  await interaction.channel
+    ?.setTopic(
+      `Ticket ${claimedTicket.ticketNumber} for ${claimedTicket.userId} • Claimed by ${interaction.user.tag} (${interaction.user.id})`,
+      'Ticket claimed',
+    )
+    .catch(() => null);
+
+  await interaction.channel
+    ?.send(`✅ Ticket claimed by <@${interaction.user.id}>.`)
+    .catch(() => null);
 }
 
 module.exports = {
@@ -788,6 +872,11 @@ module.exports = {
   async handleButton(interaction) {
     if (interaction.customId === OPEN_TICKET_CUSTOM_ID) {
       await openTicket(interaction);
+      return true;
+    }
+
+    if (interaction.customId === CLAIM_TICKET_CUSTOM_ID) {
+      await claimTicket(interaction);
       return true;
     }
 

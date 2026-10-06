@@ -106,6 +106,31 @@ function addOpenTicket(guildId, userId, ticket) {
   return state.openTickets[userId];
 }
 
+function updateOpenTicketByChannel(guildId, channelId, updates) {
+  const state = getGuildState(guildId);
+  const entry = Object.entries(state.openTickets).find(
+    ([, ticket]) => ticket.channelId === channelId,
+  );
+
+  if (!entry) {
+    return null;
+  }
+
+  const [userId, ticket] = entry;
+  state.openTickets[userId] = {
+    ...ticket,
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
+
+  saveTickets();
+
+  return {
+    userId,
+    ...state.openTickets[userId],
+  };
+}
+
 function findTicketByChannel(guildId, channelId) {
   const state = getGuildState(guildId);
   const entry = Object.entries(state.openTickets).find(
@@ -152,4 +177,5 @@ module.exports = {
   getTicketConfig,
   removeOpenTicketByChannel,
   setTicketConfig,
+  updateOpenTicketByChannel,
 };
