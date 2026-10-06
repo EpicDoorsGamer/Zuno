@@ -1,0 +1,27 @@
+{
+  "name": "zuno-roblox-whois-bot",
+  "version": "1.0.0",
+  "description": "Zuno Discord bot with a Roblox /whois slash command.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": [
+    "discord",
+    "discord.js",
+    "roblox",
+    "whois",
+    "bot"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
