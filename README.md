@@ -38,7 +38,7 @@ Zuno is a minimal Discord bot built with Node.js and discord.js. It provides the
 
 The fun economy commands support both slash commands and `!` aliases. Coins, cooldowns, inventories, blackjack stats, slots stats, and lootbox stats are saved in `data/economy.json`.
 
-`/chess` starts a playable turn-based chess game with a generated PNG board. It uses `chess.js` for real legal move validation and supports server use, bot DMs, private channels, and user-installed external-app use.
+`/chess` starts a playable turn-based chess game with a generated PNG board. It uses `chess.js` for real legal move validation, then adds interactive buttons for moving, refreshing, flipping the board, and resigning. It supports server use, bot DMs, private channels, and user-installed external-app use.
 
 ## Folder Structure
 
@@ -249,7 +249,7 @@ Starts a two-player chess game. Leave `opponent` empty to start a solo board whe
 /chess move from:e2 to:e4
 ```
 
-Plays a legal move and posts the updated board. Use `promotion` when a pawn promotes.
+Plays a legal move and posts the updated board. You can also press **Make Move** on the chess embed to open a small move form instead of typing the slash command again. Use `promotion` when a pawn promotes.
 
 ```text
 /chess board orientation:Black

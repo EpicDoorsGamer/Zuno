@@ -1,16 +1,23 @@
 const { Chess } = require('chess.js');
 const {
+  ActionRowBuilder,
   ApplicationIntegrationType,
   AttachmentBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder,
   InteractionContextType,
   MessageFlags,
+  ModalBuilder,
   SlashCommandBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } = require('discord.js');
 const { createImage } = require('../services/chessImage');
 const { clearGame, getGame, setGame } = require('../services/chessGames');
 
 const SQUARE_PATTERN = /^[a-h][1-8]$/;
+const MOVE_MODAL_ID = 'chess:move-modal';
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -123,6 +130,60 @@ module.exports = {
       await handleResign(interaction);
     }
   },
+
+  async handleButton(interaction) {
+    if (!interaction.customId.startsWith('chess:')) {
+      return false;
+    }
+
+    const [, action, value] = interaction.customId.split(':');
+
+    if (action === 'move') {
+      await handleMoveButton(interaction);
+      return true;
+    }
+
+    if (action === 'refresh') {
+      await handleRefreshButton(interaction);
+      return true;
+    }
+
+    if (action === 'flip') {
+      await handleFlipButton(interaction, value);
+      return true;
+    }
+
+    if (action === 'resign') {
+      await handleResignButton(interaction);
+      return true;
+    }
+
+    return false;
+  },
+
+  async handleModal(interaction) {
+    if (interaction.customId !== MOVE_MODAL_ID) {
+      return false;
+    }
+
+    const from = interaction.fields.getTextInputValue('from');
+    const to = interaction.fields.getTextInputValue('to');
+    const promotion = normalizePromotion(interaction.fields.getTextInputValue('promotion'));
+
+    if (promotion === null) {
+      await replyError(interaction, '❌ Promotion must be `queen`, `rook`, `bishop`, or `knight`.');
+      return true;
+    }
+
+    await submitMove(interaction, {
+      from,
+      promotion,
+      to,
+      updateMessage: true,
+    });
+
+    return true;
+  },
 };
 
 async function handleStart(interaction) {
@@ -175,6 +236,15 @@ async function handleStart(interaction) {
 }
 
 async function handleMove(interaction) {
+  await submitMove(interaction, {
+    from: interaction.options.getString('from', true),
+    promotion: interaction.options.getString('promotion') ?? undefined,
+    to: interaction.options.getString('to', true),
+    updateMessage: false,
+  });
+}
+
+async function submitMove(interaction, { from, to, promotion, updateMessage }) {
   const game = getGame(interaction.channelId);
 
   if (!game) {
@@ -182,11 +252,10 @@ async function handleMove(interaction) {
     return;
   }
 
-  const from = interaction.options.getString('from', true).toLowerCase();
-  const to = interaction.options.getString('to', true).toLowerCase();
-  const promotion = interaction.options.getString('promotion') ?? undefined;
+  const fromSquare = normalizeSquare(from);
+  const toSquare = normalizeSquare(to);
 
-  if (!SQUARE_PATTERN.test(from) || !SQUARE_PATTERN.test(to)) {
+  if (!SQUARE_PATTERN.test(fromSquare) || !SQUARE_PATTERN.test(toSquare)) {
     await replyError(interaction, '❌ Use normal chess squares like `e2` and `e4`.');
     return;
   }
@@ -202,7 +271,7 @@ async function handleMove(interaction) {
   let move;
 
   try {
-    move = chess.move({ from, to, promotion });
+    move = chess.move({ from: fromSquare, to: toSquare, promotion });
   } catch {
     await replyError(interaction, '❌ That is not a legal chess move.');
     return;
@@ -216,8 +285,8 @@ async function handleMove(interaction) {
   const moves = [
     ...(game.moves ?? []),
     {
-      from,
-      to,
+      from: fromSquare,
+      to: toSquare,
       promotion: promotion ?? null,
       san: move.san,
       by: interaction.user.id,
@@ -229,7 +298,7 @@ async function handleMove(interaction) {
     fen: chess.fen(),
     moves,
     lastMoveSan: move.san,
-    lastMoveSquares: [from, to],
+    lastMoveSquares: [fromSquare, toSquare],
   };
 
   const savedGame = setGame(interaction.channelId, updatedGame);
@@ -241,9 +310,86 @@ async function handleMove(interaction) {
   if (chess.isGameOver()) {
     clearGame(interaction.channelId);
     response.embeds[0].setFooter({ text: 'Game ended. Start another with /chess start.' });
+    response.components = buildChessControls({
+      disabled: true,
+      orientation: getDefaultOrientation(savedGame, interaction.user.id),
+    });
   }
 
-  await interaction.reply(response);
+  await sendChessResponse(interaction, response, updateMessage);
+}
+
+async function handleMoveButton(interaction) {
+  const game = getGame(interaction.channelId);
+
+  if (!game) {
+    await replyError(interaction, '❌ No chess game is active here. Start one with `/chess start`.');
+    return;
+  }
+
+  const chess = loadChess(game);
+  const expectedPlayer = getExpectedPlayer(game, chess.turn());
+
+  if (!canMoveForTurn(game, interaction.user.id, expectedPlayer)) {
+    await replyError(interaction, `❌ It is ${sideName(chess.turn())}'s turn${expectedPlayer ? `: <@${expectedPlayer}>` : ''}.`);
+    return;
+  }
+
+  await interaction.showModal(buildMoveModal());
+}
+
+async function handleRefreshButton(interaction) {
+  const game = getGame(interaction.channelId);
+
+  if (!game) {
+    await replyError(interaction, '❌ This chess game is no longer active.');
+    return;
+  }
+
+  const response = buildChessResponse(game, {
+    orientation: getDefaultOrientation(game, interaction.user.id),
+    title: 'Current Board',
+  });
+
+  await sendChessResponse(interaction, response, true);
+}
+
+async function handleFlipButton(interaction, orientation) {
+  const game = getGame(interaction.channelId);
+
+  if (!game) {
+    await replyError(interaction, '❌ This chess game is no longer active.');
+    return;
+  }
+
+  const response = buildChessResponse(game, {
+    orientation,
+    title: 'Current Board',
+  });
+
+  await sendChessResponse(interaction, response, true);
+}
+
+async function handleResignButton(interaction) {
+  const game = getGame(interaction.channelId);
+
+  if (!game) {
+    await replyError(interaction, '❌ This chess game is no longer active.');
+    return;
+  }
+
+  if (!isPlayer(game, interaction.user.id)) {
+    await replyError(interaction, '❌ Only a player in this chess game can resign.');
+    return;
+  }
+
+  const response = buildResignResponse(game, interaction.user.id);
+  clearGame(interaction.channelId);
+
+  await interaction.update({
+    ...response,
+    attachments: [],
+  });
 }
 
 async function handleBoard(interaction) {
@@ -273,24 +419,10 @@ async function handleResign(interaction) {
     return;
   }
 
-  const chess = loadChess(game);
-  const resigningSide = getPlayerSide(game, interaction.user.id) ?? chess.turn();
-  const winner = resigningSide === 'w' ? 'Black' : 'White';
-
+  const response = buildResignResponse(game, interaction.user.id);
   clearGame(interaction.channelId);
 
-  const embed = new EmbedBuilder()
-    .setColor(0x2b2d31)
-    .setAuthor({ name: 'ZUNO • CHESS' })
-    .setTitle('Game Resigned')
-    .setDescription(`${sideName(resigningSide)} resigned. ${winner} wins.`)
-    .addFields(
-      { name: 'White', value: playerMention(game.whiteId), inline: true },
-      { name: 'Black', value: playerMention(game.blackId), inline: true },
-    )
-    .setFooter({ text: 'Game ended. Start another with /chess start.' });
-
-  await interaction.reply({ embeds: [embed] });
+  await interaction.reply(response);
 }
 
 function buildChessResponse(game, options = {}) {
@@ -308,7 +440,7 @@ function buildChessResponse(game, options = {}) {
     .setColor(0x2b2d31)
     .setAuthor({ name: 'ZUNO • CHESS' })
     .setTitle(options.title ?? 'Chess Board')
-    .setDescription('Move with `/chess move from:e2 to:e4`.')
+    .setDescription('Use **Make Move** below, or `/chess move from:e2 to:e4`.')
     .addFields(
       { name: 'White', value: playerMention(game.whiteId), inline: true },
       { name: 'Black', value: playerMention(game.blackId), inline: true },
@@ -322,6 +454,10 @@ function buildChessResponse(game, options = {}) {
   }
 
   return {
+    components: buildChessControls({
+      disabled: options.controlsDisabled ?? chess.isGameOver(),
+      orientation,
+    }),
     embeds: [embed],
     files: [attachment],
   };
@@ -329,6 +465,105 @@ function buildChessResponse(game, options = {}) {
 
 async function replyWithBoard(interaction, game, options = {}) {
   await interaction.reply(buildChessResponse(game, options));
+}
+
+function buildResignResponse(game, userId) {
+  const chess = loadChess(game);
+  const resigningSide = getPlayerSide(game, userId) ?? chess.turn();
+  const winner = resigningSide === 'w' ? 'Black' : 'White';
+  const embed = new EmbedBuilder()
+    .setColor(0x2b2d31)
+    .setAuthor({ name: 'ZUNO • CHESS' })
+    .setTitle('Game Resigned')
+    .setDescription(`${sideName(resigningSide)} resigned. ${winner} wins.`)
+    .addFields(
+      { name: 'White', value: playerMention(game.whiteId), inline: true },
+      { name: 'Black', value: playerMention(game.blackId), inline: true },
+    )
+    .setFooter({ text: 'Game ended. Start another with /chess start.' });
+
+  return {
+    components: buildChessControls({ disabled: true }),
+    embeds: [embed],
+  };
+}
+
+function buildChessControls({ disabled = false, orientation = 'white' } = {}) {
+  const flipTo = orientation === 'black' ? 'white' : 'black';
+
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('chess:move')
+        .setLabel('Make Move')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(disabled),
+      new ButtonBuilder()
+        .setCustomId('chess:refresh')
+        .setLabel('Refresh')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(disabled),
+      new ButtonBuilder()
+        .setCustomId(`chess:flip:${flipTo}`)
+        .setLabel('Flip Board')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(disabled),
+      new ButtonBuilder()
+        .setCustomId('chess:resign')
+        .setLabel('Resign')
+        .setStyle(ButtonStyle.Danger)
+        .setDisabled(disabled),
+    ),
+  ];
+}
+
+function buildMoveModal() {
+  return new ModalBuilder()
+    .setCustomId(MOVE_MODAL_ID)
+    .setTitle('Make a Chess Move')
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('from')
+          .setLabel('From')
+          .setPlaceholder('e2')
+          .setMinLength(2)
+          .setMaxLength(2)
+          .setRequired(true)
+          .setStyle(TextInputStyle.Short),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('to')
+          .setLabel('To')
+          .setPlaceholder('e4')
+          .setMinLength(2)
+          .setMaxLength(2)
+          .setRequired(true)
+          .setStyle(TextInputStyle.Short),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('promotion')
+          .setLabel('Promotion')
+          .setPlaceholder('Optional: queen, rook, bishop, or knight')
+          .setMaxLength(6)
+          .setRequired(false)
+          .setStyle(TextInputStyle.Short),
+      ),
+    );
+}
+
+async function sendChessResponse(interaction, response, updateMessage) {
+  if (updateMessage && typeof interaction.update === 'function') {
+    await interaction.update({
+      ...response,
+      attachments: [],
+    });
+    return;
+  }
+
+  await interaction.reply(response);
 }
 
 async function replyError(interaction, content) {
@@ -355,6 +590,31 @@ function loadChess(game) {
   } catch {
     return new Chess(game.fen);
   }
+}
+
+function normalizeSquare(square) {
+  return String(square ?? '').trim().toLowerCase();
+}
+
+function normalizePromotion(value) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  const pieces = {
+    b: 'b',
+    bishop: 'b',
+    knight: 'n',
+    n: 'n',
+    q: 'q',
+    queen: 'q',
+    r: 'r',
+    rook: 'r',
+  };
+
+  return pieces[normalized] ?? null;
 }
 
 function chooseUserColor(color) {

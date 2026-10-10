@@ -94,6 +94,17 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
     }
+
+    if (interaction.isModalSubmit()) {
+      for (const command of client.commands.values()) {
+        if (
+          typeof command.handleModal === 'function' &&
+          (await command.handleModal(interaction))
+        ) {
+          return;
+        }
+      }
+    }
   } catch (error) {
     console.error(error);
 
