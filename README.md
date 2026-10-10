@@ -13,7 +13,7 @@ Zuno is a minimal Discord bot built with Node.js and discord.js. It provides the
 /ticket disable
 /status set <text> [type] [presence]
 /status clear
-/fakeoreping <username> <ore> <chance> <layer> <owned> <total_mined>
+/fakeoreping <username> <ore> <chance> <layer> <owned> <total_mined> [sidecolor]
 ```
 
 `/whois` searches Roblox for a real account, then posts a public channel embed with the user's Roblox identity, avatar headshot, account dates, profile description, social counts, Roblox badge count, optional Roblox group membership details, and any locally assigned clan.
@@ -24,7 +24,7 @@ Zuno is a minimal Discord bot built with Node.js and discord.js. It provides the
 
 `/status` changes Zuno's Discord presence. It is restricted to bot owners `1109158652927033465` and `1211338035136954391`.
 
-`/fakeoreping` sends a fake Miner's World ore ping embed using the provided username, ore, chance, layer, owned count, and total mined count. Its Website button is intentionally disabled because Discord link buttons require a real URL.
+`/fakeoreping` sends a fake Miner's World ore ping embed using the provided username, ore, chance, layer, owned count, total mined count, and optional side color. Its Website button is fake and quietly does nothing when clicked.
 
 ## Folder Structure
 
@@ -209,6 +209,6 @@ Zuno uses public Roblox endpoints only and never fabricates unavailable values:
 - Ticket panels are public, ticket channels are private, and users can only have one open ticket at a time.
 - Ticket channels include a Claim Ticket button. Once staff claims a ticket, the ticket embed shows who claimed it and the claim button becomes disabled.
 - `/status` is owner-only and saves the selected presence in `data/bot-status.json` so it can be restored after restart.
-- `/fakeoreping` keeps `Miner's World • Ore ping` and `JS-Utility • Ore ping` text fixed while filling in the supplied ore data.
+- `/fakeoreping` keeps `Miner's World · Ore ping` and `JS-Utility · Ore ping` text fixed while filling in the supplied ore data.
 - Roblox lookups are cached for a short time using `CACHE_TTL_SECONDS` to reduce unnecessary API traffic.
 - If Roblox omits or refuses a piece of optional data, Zuno leaves that field out instead of guessing.
