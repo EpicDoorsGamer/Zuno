@@ -41,6 +41,12 @@ const rest = new REST({ version: '10' }).setToken(token);
       }...`,
     );
 
+    if (guildId) {
+      console.warn(
+        'Note: DM/external slash-command support only works for globally deployed commands. Clear DISCORD_GUILD_ID and run npm run deploy to make /chess available in DMs.',
+      );
+    }
+
     await rest.put(route, { body: commands });
     console.log('Slash commands deployed.');
   } catch (error) {

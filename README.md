@@ -22,6 +22,7 @@ Zuno is a minimal Discord bot built with Node.js and discord.js. It provides the
 /inventory [user] or !iv [@user]
 /lootbox <type> or !lootbox <type>
 /ping or !ping
+/chess
 ```
 
 `/whois` searches Roblox for a real account, then posts a public channel embed with the user's Roblox identity, avatar headshot, account dates, profile description, social counts, Roblox badge count, optional Roblox group membership details, and any locally assigned clan.
@@ -33,6 +34,8 @@ Zuno is a minimal Discord bot built with Node.js and discord.js. It provides the
 `/status` changes Zuno's Discord presence. It is restricted to bot owners `1109158652927033465` and `1211338035136954391`.
 
 The fun economy commands support both slash commands and `!` aliases. Coins, cooldowns, inventories, blackjack stats, slots stats, and lootbox stats are saved in `data/economy.json`.
+
+`/chess` generates a fresh PNG image of a chess board and sends it as a Discord attachment. It is configured for server use, bot DMs, private channels, and user-installed external-app use.
 
 ## Folder Structure
 
@@ -71,6 +74,7 @@ Required npm packages:
 
 - `discord.js`
 - `dotenv`
+- `pngjs`
 
 ## Install
 
@@ -137,6 +141,8 @@ npm run deploy
 ```
 
 Run this again after adding or changing commands, otherwise Discord may still only know about older slash commands.
+
+For `/chess` to appear in DMs or as an external/user-installed slash command, deploy commands globally. Leave `DISCORD_GUILD_ID` empty in `.env`, then run `npm run deploy`. Guild-only deployments cannot appear in DMs.
 
 ## Fun Economy Commands
 
