@@ -8,6 +8,7 @@ const {
   GatewayIntentBits,
   MessageFlags,
 } = require('discord.js');
+const { applyStatus, loadSavedStatus } = require('./services/botStatus');
 
 const token = process.env.DISCORD_TOKEN;
 
@@ -39,7 +40,12 @@ for (const file of commandFiles) {
 }
 
 client.once('ready', (readyClient) => {
+  const savedStatus = applyStatus(readyClient, loadSavedStatus());
   console.log(`Zuno is online as ${readyClient.user.tag}`);
+
+  if (savedStatus?.text) {
+    console.log(`Loaded saved status: ${savedStatus.text}`);
+  }
 });
 
 client.on('interactionCreate', async (interaction) => {
