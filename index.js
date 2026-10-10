@@ -18,10 +18,15 @@ if (!token) {
 }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
 client.commands = new Collection();
+client.prefixCommands = new Collection();
 
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs
@@ -37,6 +42,10 @@ for (const file of commandFiles) {
   }
 
   client.commands.set(command.data.name, command);
+
+  for (const alias of command.aliases ?? []) {
+    client.prefixCommands.set(alias.toLowerCase(), command);
+  }
 }
 
 client.once('ready', (readyClient) => {
@@ -97,6 +106,32 @@ client.on('interactionCreate', async (interaction) => {
     } else {
       await interaction.reply(payload).catch(() => null);
     }
+  }
+});
+
+client.on('messageCreate', async (message) => {
+  if (message.author.bot || !message.guild || !message.content.startsWith('!')) {
+    return;
+  }
+
+  const parts = message.content.slice(1).trim().split(/\s+/);
+  const commandName = parts.shift()?.toLowerCase();
+
+  if (!commandName) {
+    return;
+  }
+
+  const command = client.prefixCommands.get(commandName);
+
+  if (!command?.prefixExecute) {
+    return;
+  }
+
+  try {
+    await command.prefixExecute(message, parts);
+  } catch (error) {
+    console.error(error);
+    await message.reply('❌ Something went wrong while running that command.');
   }
 });
 
