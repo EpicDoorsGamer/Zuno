@@ -18,18 +18,12 @@ const COLORS = {
   blackStroke: [232, 225, 209, 255],
 };
 
-const STARTING_POSITION = [
-  ['br', 'bn', 'bb', 'bq', 'bk', 'bb', 'bn', 'br'],
-  ['bp', 'bp', 'bp', 'bp', 'bp', 'bp', 'bp', 'bp'],
-  [null, null, null, null, null, null, null, null],
-  [null, null, null, null, null, null, null, null],
-  [null, null, null, null, null, null, null, null],
-  [null, null, null, null, null, null, null, null],
-  ['wp', 'wp', 'wp', 'wp', 'wp', 'wp', 'wp', 'wp'],
-  ['wr', 'wn', 'wb', 'wq', 'wk', 'wb', 'wn', 'wr'],
-];
+const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
-function createImage() {
+function createImage(options = {}) {
+  const board = parseFenBoard(options.fen ?? STARTING_FEN);
+  const orientation = options.orientation === 'black' ? 'black' : 'white';
+  const highlights = new Set(options.highlights ?? []);
   const png = new PNG({ width: WIDTH, height: HEIGHT });
 
   fillRect(png, 0, 0, WIDTH, HEIGHT, COLORS.background);
@@ -43,12 +37,17 @@ function createImage() {
       const color = (rank + file) % 2 === 0 ? COLORS.lightSquare : COLORS.darkSquare;
 
       fillRect(png, x, y, SQUARE, SQUARE, color);
+
+      if (highlights.has(displaySquareToAlgebraic(file, rank, orientation))) {
+        fillHighlight(png, x, y, SQUARE, SQUARE, [250, 204, 21, 92]);
+      }
     }
   }
 
   for (let rank = 0; rank < 8; rank += 1) {
     for (let file = 0; file < 8; file += 1) {
-      const piece = STARTING_POSITION[rank][file];
+      const [boardRank, boardFile] = displayToBoard(file, rank, orientation);
+      const piece = board[boardRank][boardFile];
 
       if (!piece) {
         continue;
@@ -66,6 +65,49 @@ function createImage() {
   return PNG.sync.write(png);
 }
 
+function parseFenBoard(fen) {
+  const boardPart = fen.split(' ')[0];
+  const rows = boardPart.split('/');
+
+  if (rows.length !== 8) {
+    return parseFenBoard(STARTING_FEN);
+  }
+
+  return rows.map((row) => {
+    const squares = [];
+
+    for (const char of row) {
+      if (/\d/.test(char)) {
+        for (let index = 0; index < Number(char); index += 1) {
+          squares.push(null);
+        }
+        continue;
+      }
+
+      const color = char === char.toUpperCase() ? 'w' : 'b';
+      squares.push(`${color}${char.toLowerCase()}`);
+    }
+
+    return squares.length === 8 ? squares : Array(8).fill(null);
+  });
+}
+
+function displayToBoard(displayFile, displayRank, orientation) {
+  if (orientation === 'black') {
+    return [7 - displayRank, 7 - displayFile];
+  }
+
+  return [displayRank, displayFile];
+}
+
+function displaySquareToAlgebraic(displayFile, displayRank, orientation) {
+  const [boardRank, boardFile] = displayToBoard(displayFile, displayRank, orientation);
+  const file = String.fromCharCode('a'.charCodeAt(0) + boardFile);
+  const rank = 8 - boardRank;
+
+  return `${file}${rank}`;
+}
+
 function setPixel(png, x, y, color) {
   const px = Math.round(x);
   const py = Math.round(y);
@@ -81,10 +123,35 @@ function setPixel(png, x, y, color) {
   png.data[index + 3] = color[3];
 }
 
+function blendPixel(png, x, y, color) {
+  const px = Math.round(x);
+  const py = Math.round(y);
+
+  if (px < 0 || py < 0 || px >= png.width || py >= png.height) {
+    return;
+  }
+
+  const index = (py * png.width + px) * 4;
+  const alpha = color[3] / 255;
+
+  png.data[index] = Math.round(color[0] * alpha + png.data[index] * (1 - alpha));
+  png.data[index + 1] = Math.round(color[1] * alpha + png.data[index + 1] * (1 - alpha));
+  png.data[index + 2] = Math.round(color[2] * alpha + png.data[index + 2] * (1 - alpha));
+  png.data[index + 3] = 255;
+}
+
 function fillRect(png, x, y, width, height, color) {
   for (let py = Math.floor(y); py < y + height; py += 1) {
     for (let px = Math.floor(x); px < x + width; px += 1) {
       setPixel(png, px, py, color);
+    }
+  }
+}
+
+function fillHighlight(png, x, y, width, height, color) {
+  for (let py = Math.floor(y); py < y + height; py += 1) {
+    for (let px = Math.floor(x); px < x + width; px += 1) {
+      blendPixel(png, px, py, color);
     }
   }
 }

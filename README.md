@@ -22,7 +22,10 @@ Zuno is a minimal Discord bot built with Node.js and discord.js. It provides the
 /inventory [user] or !iv [@user]
 /lootbox <type> or !lootbox <type>
 /ping or !ping
-/chess
+/chess start [opponent] [color]
+/chess move <from> <to> [promotion]
+/chess board [orientation]
+/chess resign
 ```
 
 `/whois` searches Roblox for a real account, then posts a public channel embed with the user's Roblox identity, avatar headshot, account dates, profile description, social counts, Roblox badge count, optional Roblox group membership details, and any locally assigned clan.
@@ -35,26 +38,46 @@ Zuno is a minimal Discord bot built with Node.js and discord.js. It provides the
 
 The fun economy commands support both slash commands and `!` aliases. Coins, cooldowns, inventories, blackjack stats, slots stats, and lootbox stats are saved in `data/economy.json`.
 
-`/chess` generates a fresh PNG image of a chess board and sends it as a Discord attachment. It is configured for server use, bot DMs, private channels, and user-installed external-app use.
+`/chess` starts a playable turn-based chess game with a generated PNG board. It uses `chess.js` for real legal move validation and supports server use, bot DMs, private channels, and user-installed external-app use.
 
 ## Folder Structure
 
 ```text
 Zuno/
 ├─ commands/
+│  ├─ balance.js
+│  ├─ bj.js
+│  ├─ chess.js
 │  ├─ clan.js
+│  ├─ daily.js
+│  ├─ inventory.js
+│  ├─ leaderboard.js
+│  ├─ lootbox.js
+│  ├─ ping.js
+│  ├─ slots.js
+│  ├─ status.js
 │  ├─ ticket.js
-│  └─ whois.js
+│  ├─ whois.js
+│  └─ work.js
 ├─ data/
+│  ├─ bot-status.json
+│  ├─ chess-games.json
 │  ├─ clans.json
+│  ├─ economy.json
 │  └─ tickets.json
 ├─ services/
+│  ├─ botStatus.js
+│  ├─ chessGames.js
+│  ├─ chessImage.js
 │  ├─ clans.js
+│  ├─ economy.js
 │  ├─ roblox.js
 │  └─ tickets.js
 ├─ utils/
 │  ├─ cache.js
+│  ├─ economyFormat.js
 │  ├─ format.js
+│  ├─ owners.js
 │  └─ roles.js
 ├─ .env
 ├─ .env.example
@@ -74,6 +97,7 @@ Required npm packages:
 
 - `discord.js`
 - `dotenv`
+- `chess.js`
 - `pngjs`
 
 ## Install
@@ -126,12 +150,12 @@ Ticket settings and open-ticket tracking are saved in `data/tickets.json`. Zuno 
 4. Open General Information and copy the Application ID into `.env` as `DISCORD_APPLICATION_ID`.
 5. In the Bot tab, enable the privileged `Message Content Intent` if you want `!slots`, `!bj`, `!daily`, and the other prefix commands to work.
 6. Invite the bot with scopes `bot` and `applications.commands`.
-7. Give it at least `Manage Channels`, `Send Messages`, and `Embed Links`.
+7. Give it at least `Manage Channels`, `Send Messages`, `Embed Links`, and `Attach Files`.
 
 Invite URL template:
 
 ```text
-https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID&permissions=18448&scope=bot+applications.commands
+https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID&permissions=51216&scope=bot+applications.commands
 ```
 
 ## Deploy Slash Commands
@@ -210,6 +234,34 @@ Opens a lootbox. Available types are `Common Box`, `Uncommon Box`, `Rare Box`, `
 ```
 
 Shows bot latency.
+
+## Chess Commands
+
+Chess games are saved in `data/chess-games.json`, so active games survive bot restarts. Zuno keeps one active chess game per channel or DM.
+
+```text
+/chess start opponent:@member color:White
+```
+
+Starts a two-player chess game. Leave `opponent` empty to start a solo board where you control both sides.
+
+```text
+/chess move from:e2 to:e4
+```
+
+Plays a legal move and posts the updated board. Use `promotion` when a pawn promotes.
+
+```text
+/chess board orientation:Black
+```
+
+Shows the current board. Orientation is optional and defaults to your side when you are a player.
+
+```text
+/chess resign
+```
+
+Ends the active game. Only a player in the game can resign.
 
 ## Ticket Setup
 
@@ -293,5 +345,6 @@ Zuno uses public Roblox endpoints only and never fabricates unavailable values:
 - `/status` is owner-only and saves the selected presence in `data/bot-status.json` so it can be restored after restart.
 - Prefix commands use `!` and require Discord's Message Content intent to be enabled for the bot.
 - Economy data is saved in `data/economy.json`.
+- Chess games are saved in `data/chess-games.json`.
 - Roblox lookups are cached for a short time using `CACHE_TTL_SECONDS` to reduce unnecessary API traffic.
 - If Roblox omits or refuses a piece of optional data, Zuno leaves that field out instead of guessing.
